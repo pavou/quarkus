@@ -19,6 +19,7 @@ import jakarta.enterprise.inject.spi.CDI;
 
 import org.jboss.logging.Logger;
 import org.jboss.logmanager.ExtLogRecord;
+import org.jboss.logmanager.formatters.StructuredFormatter.Key;
 
 import io.quarkus.logging.json.runtime.JsonLogConfig.JsonConfig.LogFormat;
 
@@ -135,7 +136,19 @@ public class JsonFormatter extends org.jboss.logmanager.formatters.JsonFormatter
     @Override
     protected void after(final Generator generator, final ExtLogRecord record) throws Exception {
 
-        if (logFormat.equals(LogFormat.GCP)) {
+        if (logFormat.equals(LogFormat.ECS)) {
+            // In ECS mode the FORMATTED output type writes error.stack_trace as a flat string
+            // but does not write error.message or error.type as separate top-level fields.
+            // Write them here so the output is fully ECS-compliant.
+            final Throwable thrown = record.getThrown();
+            if (thrown != null) {
+                final String message = thrown.getMessage();
+                if (message != null && !message.isEmpty()) {
+                    generator.add(getKey(Key.EXCEPTION_MESSAGE), message);
+                }
+                generator.add(getKey(Key.EXCEPTION_TYPE), thrown.getClass().getName());
+            }
+        } else if (logFormat.equals(LogFormat.GCP)) {
             final Map<String, String> mdcCopy = record.getMdcCopy();
             if (!mdcCopy.isEmpty()) {
                 Map<String, AdditionalField> current = new HashMap<>(additionalFields);
@@ -157,8 +170,10 @@ public class JsonFormatter extends org.jboss.logmanager.formatters.JsonFormatter
                 // fast path
                 addToGenerator(additionalFields, generator);
             }
-        } else {
-            // fast path
+        }
+
+        // fast path for additional fields (GCP already handled above, ECS falls through here)
+        if (!logFormat.equals(LogFormat.GCP)) {
             addToGenerator(additionalFields, generator);
         }
 

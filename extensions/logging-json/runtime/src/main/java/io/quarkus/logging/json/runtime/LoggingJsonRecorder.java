@@ -27,6 +27,7 @@ import org.eclipse.microprofile.config.Config;
 import org.eclipse.microprofile.config.ConfigProvider;
 import org.jboss.logging.Logger;
 import org.jboss.logmanager.PropertyValues;
+import org.jboss.logmanager.formatters.StructuredFormatter;
 import org.jboss.logmanager.formatters.StructuredFormatter.Key;
 
 import io.quarkus.logging.json.runtime.JsonLogConfig.AdditionalFieldConfig.Type;
@@ -147,7 +148,15 @@ public class LoggingJsonRecorder {
         if (!dateFormat.equals("default")) {
             formatter.setDateFormat(dateFormat);
         }
-        formatter.setExceptionOutputType(config.exceptionOutputType());
+        // ECS requires a flat rendered stack trace string in error.stack_trace.
+        // The FORMATTED output type writes the stack trace via Key.STACK_TRACE (mapped
+        // to "error.stack_trace" by addEcsFieldOverrides) and suppresses the structured
+        // "exception" object that DETAILED would produce.
+        if (JsonConfig.LogFormat.ECS == config.logFormat()) {
+            formatter.setExceptionOutputType(StructuredFormatter.ExceptionOutputType.FORMATTED);
+        } else {
+            formatter.setExceptionOutputType(config.exceptionOutputType());
+        }
         formatter.setPrintDetails(config.printDetails());
         config.recordDelimiter().ifPresent(formatter::setRecordDelimiter);
         final String zoneId = config.zoneId();
@@ -169,6 +178,7 @@ public class LoggingJsonRecorder {
         keyOverrides.putIfAbsent(Key.HOST_NAME, "host.hostname");
         keyOverrides.putIfAbsent(Key.SEQUENCE, "event.sequence");
         keyOverrides.putIfAbsent(Key.EXCEPTION_MESSAGE, "error.message");
+        keyOverrides.putIfAbsent(Key.EXCEPTION_TYPE, "error.type");
         keyOverrides.putIfAbsent(Key.STACK_TRACE, "error.stack_trace");
 
         Set<String> excludedKeys = new HashSet<>(overridableJsonConfig.excludedKeys());
